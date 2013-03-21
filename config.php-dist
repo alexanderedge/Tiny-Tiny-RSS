@@ -3,12 +3,22 @@
 	// *** Database configuration (important!) ***
 	// *******************************************
 
-	define('DB_TYPE', "pgsql"); // or mysql
-	define('DB_HOST', "localhost");
-	define('DB_USER', "fox");
-	define('DB_NAME', "fox");
-	define('DB_PASS', "XXXXXX");
-	//define('DB_PORT', '5432'); // when neeeded, PG-only
+	$services_json = json_decode(getenv("VCAP_SERVICES"),true);
+	$mysql_config = $services_json["mysql-5.1"][0]["credentials"];
+	$username = $mysql_config["username"];
+	$password = $mysql_config["password"];
+	$hostname = $mysql_config["hostname"];
+	$port = $mysql_config["port"];
+	$db = $mysql_config["name"];
+	$link = mysql_connect("$hostname:$port", $username, $password);
+	$db_selected = mysql_select_db($db, $link);
+
+	define('DB_TYPE', "mysql"); // or mysql
+	define('DB_HOST', $hostname);
+	define('DB_USER', $username);
+	define('DB_NAME', $db);
+	define('DB_PASS', $password);
+	define('DB_PORT', $port); // when neeeded, PG-only
 
 	define('MYSQL_CHARSET', 'UTF8');
 	// Connection charset for MySQL. If you have a legacy database and/or experience
