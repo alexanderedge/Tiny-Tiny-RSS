@@ -1,6 +1,6 @@
 <?php
 	define('EXPECTED_CONFIG_VERSION', 26);
-	define('SCHEMA_VERSION', 105);
+	define('SCHEMA_VERSION', 106);
 
 	$fetch_last_error = false;
 	$pluginhost = false;
@@ -44,6 +44,7 @@
 		$tr = array(
 					"auto"  => "Detect automatically",
 					"ca_CA" => "Català",
+					"cs_CZ" => "Česky",
 					"en_US" => "English",
 					"es_ES" => "Español",
 					"de_DE" => "Deutsch",
@@ -122,14 +123,24 @@
 	 * @return void
 	 */
 	function _debug($msg) {
-		if (defined('QUIET') && QUIET) {
-			return;
-		}
 		$ts = strftime("%H:%M:%S", time());
 		if (function_exists('posix_getpid')) {
 			$ts = "$ts/" . posix_getpid();
 		}
-		print "[$ts] $msg\n";
+
+		if (!(defined('QUIET') && QUIET)) {
+			print "[$ts] $msg\n";
+		}
+
+		if (defined('LOGFILE'))  {
+			$fp = fopen(LOGFILE, 'a+');
+
+			if ($fp) {
+				fputs($fp, "[$ts] $msg\n");
+				fclose($fp);
+			}
+		}
+
 	} // function _debug
 
 	/**
@@ -286,12 +297,16 @@
 		global $fetch_last_error;
 
 		if (function_exists('curl_init') && !ini_get("open_basedir")) {
-			//$ch = curl_init($url);
-			$ch = curl_init(geturl($url));
+
+			if (ini_get("safe_mode")) {
+				$ch = curl_init(geturl($url));
+			} else {
+				$ch = curl_init($url);
+			}
 
 			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout ? $timeout : 15);
 			curl_setopt($ch, CURLOPT_TIMEOUT, $timeout ? $timeout : 45);
-			//curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+			curl_setopt($ch, CURLOPT_FOLLOWLOCATION, !ini_get("safe_mode"));
 			curl_setopt($ch, CURLOPT_MAXREDIRS, 20);
 			curl_setopt($ch, CURLOPT_BINARYTRANSFER, true);
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -780,11 +795,6 @@
 		} else {
 			return $str;
 		}
-	}
-
-	// Deprecated, TODO: remove
-	function theme_image($link, $filename) {
-		return $filename;
 	}
 
 	function convert_timestamp($timestamp, $source_tz, $dest_tz) {
@@ -1821,10 +1831,10 @@
 	function make_init_params($link) {
 		$params = array();
 
-		$params["sign_progress"] = theme_image($link, "images/indicator_white.gif");
-		$params["sign_progress_tiny"] = theme_image($link, "images/indicator_tiny.gif");
-		$params["sign_excl"] = theme_image($link, "images/sign_excl.svg");
-		$params["sign_info"] = theme_image($link, "images/sign_info.svg");
+		$params["sign_progress"] = "images/indicator_white.gif";
+		$params["sign_progress_tiny"] = "images/indicator_tiny.gif";
+		$params["sign_excl"] = "images/sign_excl.svg";
+		$params["sign_info"] = "images/sign_info.svg";
 
 		foreach (array("ON_CATCHUP_SHOW_NEXT_FEED", "HIDE_READ_FEEDS",
 			"ENABLE_FEED_CATS", "FEEDS_SORT_BY_UNREAD", "CONFIRM_FEED_CATCHUP",
@@ -1885,8 +1895,9 @@
 				"article_scroll_up" => __("Scroll up"),
 				"select_article_cursor" => __("Select article under cursor"),
 				"email_article" => __("Email article"),
-				"close_article" => __("Close article"),
-				"toggle_widescreen" => __("Toggle widescreen mode")),
+				"close_article" => __("Close/collapse article"),
+				"toggle_widescreen" => __("Toggle widescreen mode"),
+				"toggle_embed_original" => __("Toggle embed original")),
 			__("Article selection") => array(
 				"select_all" => __("Select all articles"),
 				"select_unread" => __("Select unread"),
@@ -1946,7 +1957,10 @@
 				"c n" => "catchup_above",
 				"*n" => "article_scroll_down",
 				"*p" => "article_scroll_up",
+				"*(38)|Shift+up" => "article_scroll_up",
+				"*(40)|Shift+down" => "article_scroll_down",
 				"a *w" => "toggle_widescreen",
+				"a e" => "toggle_embed_original",
 				"e" => "email_article",
 				"a q" => "close_article",
 //			"article_selection" => array(
@@ -2020,6 +2034,8 @@
 		$data['last_article_id'] = getLastArticleId($link);
 		$data['cdm_expanded'] = get_pref($link, 'CDM_EXPANDED');
 
+		$data['dep_ts'] = calculate_dep_timestamp();
+
 		if (file_exists(LOCK_DIRECTORY . "/update_daemon.lock")) {
 
 			$data['daemon_is_running'] = (int) file_is_locked("update_daemon.lock");
@@ -2059,7 +2075,7 @@
 		return $data;
 	}
 
-	function search_to_sql($link, $search, $match_on) {
+	function search_to_sql($link, $search) {
 
 		$search_query_part = "";
 
@@ -2106,13 +2122,9 @@
 				//$k = date("Y-m-d", strtotime(substr($k, 1)));
 
 				array_push($query_keywords, "(".SUBSTRING_FOR_DATE."(updated,1,LENGTH('$k')) $not = '$k')");
-			} else if ($match_on == "both") {
+			} else {
 				array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%')
 						OR UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
-			} else if ($match_on == "title") {
-				array_push($query_keywords, "(UPPER(ttrss_entries.title) $not LIKE UPPER('%$k%'))");
-			} else if ($match_on == "content") {
-				array_push($query_keywords, "(UPPER(ttrss_entries.content) $not LIKE UPPER('%$k%'))");
 			}
 		}
 
@@ -2149,7 +2161,7 @@
 		return $rv;
 	}
 
-	function queryFeedHeadlines($link, $feed, $limit, $view_mode, $cat_view, $search, $search_mode, $match_on, $override_order = false, $offset = 0, $owner_uid = 0, $filter = false, $since_id = 0, $include_children = false, $ignore_vfeed_group = false) {
+	function queryFeedHeadlines($link, $feed, $limit, $view_mode, $cat_view, $search, $search_mode, $override_order = false, $offset = 0, $owner_uid = 0, $filter = false, $since_id = 0, $include_children = false, $ignore_vfeed_group = false) {
 
 		if (!$owner_uid) $owner_uid = $_SESSION["uid"];
 
@@ -2166,7 +2178,7 @@
 						$search_query_part = "ref_id = -1 AND ";
 
 				} else {
-					$search_query_part = search_to_sql($link, $search, $match_on);
+					$search_query_part = search_to_sql($link, $search);
 					$search_query_part .= " AND ";
 				}
 
@@ -2459,6 +2471,7 @@
 						num_comments,
 						comments,
 						int_id,
+						hide_images,
 						unread,feed_id,marked,published,link,last_read,orig_feed_id,
 						last_marked, last_published,
 						".SUBSTRING_FOR_DATE."(last_read,1,19) as last_read_noms,
@@ -2503,6 +2516,7 @@
 								"label_cache," .
 								"link," .
 								"last_read," .
+								"(SELECT hide_images FROM ttrss_feeds WHERE id = feed_id) AS hide_images," .
 								"last_marked, last_published, " .
 								SUBSTRING_FOR_DATE . "(last_read,1,19) as last_read_noms," .
 								$since_id_part .
@@ -2558,14 +2572,10 @@
 
 	}
 
-	function sanitize($link, $str, $force_strip_tags = false, $owner = false, $site_url = false) {
+	function sanitize($link, $str, $force_remove_images = false, $owner = false, $site_url = false) {
 		if (!$owner) $owner = $_SESSION["uid"];
 
 		$res = trim($str); if (!$res) return '';
-
-		if (get_pref($link, "STRIP_IMAGES", $owner)) {
-			$res = preg_replace('/<img[^>]+>/is', '', $res);
-		}
 
 		if (strpos($res, "href=") === false)
 			$res = rewrite_urls($res);
@@ -2603,6 +2613,24 @@
 
 					$entry->setAttribute('src', $src);
 				}
+
+				if ($entry->nodeName == 'img') {
+					if (($owner && get_pref($link, "STRIP_IMAGES", $owner)) ||
+							$force_remove_images) {
+
+						$p = $doc->createElement('p');
+
+						$a = $doc->createElement('a');
+						$a->setAttribute('href', $entry->getAttribute('src'));
+
+						$a->appendChild(new DOMText($entry->getAttribute('src')));
+						$a->setAttribute('target', '_blank');
+
+						$p->appendChild($a);
+
+						$entry->parentNode->replaceChild($p, $entry);
+					}
+				}
 			}
 
 			if (strtolower($entry->nodeName) == "a") {
@@ -2612,7 +2640,16 @@
 
 		$entries = $xpath->query('//iframe');
 		foreach ($entries as $entry) {
-			$entry->setAttribute('sandbox', true);
+			$entry->setAttribute('sandbox', 'allow-scripts');
+
+		}
+
+		global $pluginhost;
+
+		if (isset($pluginhost)) {
+			foreach ($pluginhost->get_hooks($pluginhost::HOOK_SANITIZE) as $plugin) {
+				$doc = $plugin->hook_sanitize($doc, $site_url);
+			}
 		}
 
 		$doc->removeChild($doc->firstChild); //remove doctype
@@ -2624,11 +2661,11 @@
 	function strip_harmful_tags($doc) {
 		$entries = $doc->getElementsByTagName("*");
 
-		$allowed_elements = array('a', 'address', 'audio',
+		$allowed_elements = array('a', 'address', 'audio', 'article',
 			'b', 'big', 'blockquote', 'body', 'br', 'cite',
-			'code', 'dd', 'del', 'details', 'div', 'dl',
+			'code', 'dd', 'del', 'details', 'div', 'dl', 'font',
 			'dt', 'em', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-			'header', 'html', 'i', 'iframe', 'img', 'ins', 'kbd',
+			'header', 'html', 'i', 'img', 'ins', 'kbd',
 			'li', 'nav', 'ol', 'p', 'pre', 'q', 's','small',
 			'source', 'span', 'strike', 'strong', 'sub', 'summary',
 			'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead',
@@ -2808,19 +2845,19 @@
 	function format_warning($msg, $id = "") {
 		global $link;
 		return "<div class=\"warning\" id=\"$id\">
-			<img src=\"".theme_image($link, "images/sign_excl.svg")."\">$msg</div>";
+			<img src=\"images/sign_excl.svg\">$msg</div>";
 	}
 
 	function format_notice($msg, $id = "") {
 		global $link;
 		return "<div class=\"notice\" id=\"$id\">
-			<img src=\"".theme_image($link, "images/sign_info.svg")."\">$msg</div>";
+			<img src=\"images/sign_info.svg\">$msg</div>";
 	}
 
 	function format_error($msg, $id = "") {
 		global $link;
 		return "<div class=\"error\" id=\"$id\">
-			<img src=\"".theme_image($link, "images/sign_excl.svg")."\">$msg</div>";
+			<img src=\"images/sign_excl.svg\">$msg</div>";
 	}
 
 	function print_notice($msg) {
@@ -2844,6 +2881,8 @@
 	function format_inline_player($link, $url, $ctype) {
 
 		$entry = "";
+
+		$url = htmlspecialchars($url);
 
 		if (strpos($ctype, "audio/") === 0) {
 
@@ -2871,7 +2910,8 @@
 					</object>";
 			}
 
-			if ($entry) $entry .= "&nbsp;" . basename($url);
+			if ($entry) $entry .= "&nbsp; <a target=\"_blank\"
+				href=\"$url\">" . basename($url) . "</a>";
 
 			return $entry;
 
@@ -2916,6 +2956,7 @@
 		$result = db_query($link, "SELECT id,title,link,content,feed_id,comments,int_id,
 			".SUBSTRING_FOR_DATE."(updated,1,16) as updated,
 			(SELECT site_url FROM ttrss_feeds WHERE id = feed_id) as site_url,
+			(SELECT hide_images FROM ttrss_feeds WHERE id = feed_id) as hide_images,
 			num_comments,
 			tag_cache,
 			author,
@@ -3006,7 +3047,7 @@
 			if (!$entry_comments) $entry_comments = "&nbsp;"; # placeholder
 
 			$rv['content'] .= "<div class='postTags' style='float : right'>
-				<img src='".theme_image($link, 'images/tag.png')."'
+				<img src='images/tag.png'
 				class='tagsPic' alt='Tags' title='Tags'>&nbsp;";
 
 			if (!$zoom_mode) {
@@ -3097,7 +3138,7 @@
 			$rv['content'] .= $line["content"];
 
 			$rv['content'] .= format_article_enclosures($link, $id,
-				$always_display_enclosures, $line["content"]);
+				$always_display_enclosures, $line["content"], $line["hide_images"]);
 
 			$rv['content'] .= "</div>";
 
@@ -3560,7 +3601,7 @@
 	}
 
 	function format_article_enclosures($link, $id, $always_display_enclosures,
-					$article_content) {
+					$article_content, $hide_images = false) {
 
 		$result = get_article_enclosures($link, $id);
 		$rv = '';
@@ -3601,7 +3642,7 @@
 				array_push($entries, $entry);
 			}
 
-			if (!get_pref($link, "STRIP_IMAGES")) {
+			if ($_SESSION['uid'] && !get_pref($link, "STRIP_IMAGES")) {
 				if ($always_display_enclosures ||
 							!preg_match("/<img/i", $article_content)) {
 
@@ -3610,10 +3651,16 @@
 						if (preg_match("/image/", $entry["type"]) ||
 								preg_match("/\.(jpg|png|gif|bmp)/i", $entry["filename"])) {
 
-								$rv .= "<p><img
-								alt=\"".htmlspecialchars($entry["filename"])."\"
-								src=\"" .htmlspecialchars($entry["url"]) . "\"/></p>";
+								if (!$hide_images) {
+									$rv .= "<p><img
+									alt=\"".htmlspecialchars($entry["filename"])."\"
+									src=\"" .htmlspecialchars($entry["url"]) . "\"/></p>";
+								} else {
+									$rv .= "<p><a target=\"_blank\"
+									href=\"".htmlspecialchars($entry["url"])."\"
+									>" .htmlspecialchars($entry["url"]) . "</a></p>";
 
+								}
 						}
 					}
 				}
@@ -4002,8 +4049,8 @@
 			$oline='';
 			foreach($status as $key=>$eline){$oline.='['.$key.']'.$eline.' ';}
 			$line =$oline." \r\n ".$url."\r\n-----------------\r\n";
-			$handle = @fopen('./curl.error.log', 'a');
-			fwrite($handle, $line);
+#			$handle = @fopen('./curl.error.log', 'a');
+#			fwrite($handle, $line);
 			return FALSE;
 		}
 		return $url;
@@ -4035,6 +4082,39 @@
 		}
 
 		return $rv;
+	}
+
+	function stylesheet_tag($filename) {
+		$timestamp = filemtime($filename);
+
+		echo "<link rel=\"stylesheet\" type=\"text/css\" href=\"$filename?$timestamp\"/>\n";
+	}
+
+	function javascript_tag($filename) {
+		$query = "";
+
+		if (!(strpos($filename, "?") === FALSE)) {
+			$query = substr($filename, strpos($filename, "?")+1);
+			$filename = substr($filename, 0, strpos($filename, "?"));
+		}
+
+		$timestamp = filemtime($filename);
+
+		if ($query) $timestamp .= "&$query";
+
+		echo "<script type=\"text/javascript\" charset=\"utf-8\" src=\"$filename?$timestamp\"></script>\n";
+	}
+
+	function calculate_dep_timestamp() {
+		$files = array_merge(glob("js/*.js"), glob("*.css"));
+
+		$max_ts = -1;
+
+		foreach ($files as $file) {
+			if (filemtime($file) > $max_ts) $max_ts = filemtime($file);
+		}
+
+		return $max_ts;
 	}
 
 ?>

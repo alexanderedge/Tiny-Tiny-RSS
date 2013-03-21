@@ -194,11 +194,10 @@ class API extends Handler {
 
 			$search = db_escape_string($_REQUEST["search"]);
 			$search_mode = db_escape_string($_REQUEST["search_mode"]);
-			$match_on = db_escape_string($_REQUEST["match_on"]);
 
 			$headlines = $this->api_get_headlines($this->link, $feed_id, $limit, $offset,
 				$filter, $is_cat, $show_excerpt, $show_content, $view_mode, false,
-				$include_attachments, $since_id, $search, $search_mode, $match_on,
+				$include_attachments, $since_id, $search, $search_mode,
 				$include_nested, $sanitize_content);
 
 			print $this->wrap(self::STATUS_OK, $headlines);
@@ -584,11 +583,11 @@ class API extends Handler {
 	static function api_get_headlines($link, $feed_id, $limit, $offset,
 				$filter, $is_cat, $show_excerpt, $show_content, $view_mode, $order,
 				$include_attachments, $since_id,
-				$search = "", $search_mode = "", $match_on = "",
+				$search = "", $search_mode = "",
 				$include_nested = false, $sanitize_content = true) {
 
 			$qfh_ret = queryFeedHeadlines($link, $feed_id, $limit,
-				$view_mode, $is_cat, $search, $search_mode, $match_on,
+				$view_mode, $is_cat, $search, $search_mode,
 				$order, $offset, 0, false, $since_id, $include_nested);
 
 			$result = $qfh_ret[0];
@@ -636,7 +635,9 @@ class API extends Handler {
 
 					if ($sanitize_content) {
 						$headline_row["content"] = sanitize($link,
-							$line["content_preview"], false, false, $line["site_url"]);
+							$line["content_preview"],
+							sql_bool_to_bool($line['hide_images']),
+							false, $line["site_url"]);
 					} else {
 						$headline_row["content"] = $line["content_preview"];
 					}
@@ -653,6 +654,11 @@ class API extends Handler {
 				$headline_row["comments_link"] = $line["comments"];
 
 				$headline_row["always_display_attachments"] = sql_bool_to_bool($line["always_display_enclosures"]);
+
+				global $pluginhost;
+				foreach ($pluginhost->get_hooks($pluginhost::HOOK_RENDER_ARTICLE_API) as $p) {
+					$headline_row = $p->hook_render_article_api($headline_row);
+				}
 
 				array_push($headlines, $headline_row);
 			}

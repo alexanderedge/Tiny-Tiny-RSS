@@ -22,7 +22,7 @@ class Mail extends Plugin {
 	}
 
 	function hook_article_button($line) {
-		return "<img src=\"".theme_image($link, 'plugins/mail/mail.png')."\"
+		return "<img src=\"plugins/mail/mail.png\"
 					class='tagsPic' style=\"cursor : pointer\"
 					onclick=\"emailArticle(".$line["id"].")\"
 					alt='Zoom' title='".__('Forward by email')."'>";
@@ -59,10 +59,9 @@ class Mail extends Plugin {
 
 		$tpl->readTemplateFromFile("templates/email_article_template.txt");
 
-		$tpl->setVariable('USER_NAME', $_SESSION["name"]);
-		$tpl->setVariable('USER_EMAIL', $user_email);
-		$tpl->setVariable('TTRSS_HOST', $_SERVER["HTTP_HOST"]);
-
+		$tpl->setVariable('USER_NAME', $_SESSION["name"], true);
+		$tpl->setVariable('USER_EMAIL', $user_email, true);
+		$tpl->setVariable('TTRSS_HOST', $_SERVER["HTTP_HOST"], true);
 
 		$result = db_query($this->link, "SELECT link, content, title
 			FROM ttrss_user_entries, ttrss_entries WHERE id = ref_id AND

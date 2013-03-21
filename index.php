@@ -44,8 +44,6 @@
 
 	login_sequence($link);
 
-	$dt_add = time();
-
 	no_cache_incantation();
 
 	header('Content-Type: text/html; charset=utf-8');
@@ -56,9 +54,10 @@
 <html>
 <head>
 	<title>Tiny Tiny RSS</title>
-	<link rel="stylesheet" type="text/css" href="lib/dijit/themes/claro/claro.css"/>
-	<link rel="stylesheet" type="text/css" href="tt-rss.css?<?php echo $dt_add ?>"/>
-	<link rel="stylesheet" type="text/css" href="cdm.css?<?php echo $dt_add ?>"/>
+
+	<?php echo stylesheet_tag("lib/dijit/themes/claro/claro.css"); ?>
+	<?php echo stylesheet_tag("tt-rss.css"); ?>
+	<?php echo stylesheet_tag("cdm.css"); ?>
 
 	<?php print_user_stylesheet($link) ?>
 
@@ -73,15 +72,20 @@
 	</style>
 
 	<link rel="shortcut icon" type="image/png" href="images/favicon.png"/>
+	<link rel="icon" type="image/png" sizes="72x72" href="images/favicon-72px.png" />
 
-	<script type="text/javascript" src="lib/prototype.js"></script>
-	<script type="text/javascript" src="lib/scriptaculous/scriptaculous.js?load=effects,dragdrop,controls"></script>
-	<script type="text/javascript" src="lib/dojo/dojo.js"></script>
-	<script type="text/javascript" src="lib/dijit/dijit.js"></script>
-	<script type="text/javascript" src="lib/dojo/tt-rss-layer.js"></script>
+	<?php
+	foreach (array("lib/prototype.js",
+				"lib/scriptaculous/scriptaculous.js?load=effects,dragdrop,controls",
+				"lib/dojo/dojo.js",
+				"lib/dijit/dijit.js",
+				"lib/dojo/tt-rss-layer.js",
+				"localized_js.php",
+				"errors.php?mode=js") as $jsfile) {
 
-	<script type="text/javascript" charset="utf-8" src="localized_js.php?<?php echo $dt_add ?>"></script>
-	<script type="text/javascript" charset="utf-8" src="errors.php?mode=js"></script>
+		echo javascript_tag($jsfile);
+
+	} ?>
 
 	<script type="text/javascript">
 	<?php
@@ -125,11 +129,11 @@
 <div id="header">
 	<img id="net-alert" style="display : none"
 		title="<?php echo __("Communication problem with server.") ?>"
-		src="<?php echo theme_image($link, 'images/alert.png') ?>"/>
+		src="images/alert.png"/>
 
 	<img id="newVersionIcon" style="display:none" onclick="newVersionDlg()"
 		width="13" height="13"
-		src="<?php echo theme_image($link, 'images/new_version.png') ?>"
+		src="images/new_version.png"
 		title="<?php echo __('New version of Tiny Tiny RSS is available!') ?>"
 		alt="new_version_icon"/>
 </div>
@@ -182,7 +186,8 @@
 			<option value="score"><?php echo __('Score') ?></option>
 		</select>
 
-		<button dojoType="dijit.form.Button" name="update"
+		<!-- deprecated -->
+		<button dojoType="dijit.form.Button" name="update" style="display : none"
 			onclick="viewCurrentFeed()">
 			<?php echo __('Update') ?></button>
 
@@ -197,12 +202,12 @@
 			<button id="net-alert" dojoType="dijit.form.Button" style="display : none" disabled="true"
 				title="<?php echo __("Communication problem with server.") ?>">
 			<img
-				src="<?php echo theme_image($link, 'images/alert.png') ?>" />
+				src="images/alert.png" />
 			</button>
 
 			<button id="newVersionIcon" dojoType="dijit.form.Button" style="display : none">
 			<img onclick="newVersionDlg()"
-				src="<?php echo theme_image($link, 'images/new_version.png') ?>"
+				src="images/new_version.png"
 				title="<?php echo __('New version of Tiny Tiny RSS is available!') ?>" />
 			</button>
 

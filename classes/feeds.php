@@ -22,7 +22,7 @@ class Feeds extends Handler_Protected {
 	}
 
 	private function format_headline_subtoolbar($feed_site_url, $feed_title,
-			$feed_id, $is_cat, $search, $match_on,
+			$feed_id, $is_cat, $search,
 			$search_mode, $view_mode, $error) {
 
 		$page_prev_link = "viewFeedGoPage(-1)";
@@ -50,7 +50,7 @@ class Feeds extends Handler_Protected {
 		if ($is_cat) $cat_q = "&is_cat=$is_cat";
 
 		if ($search) {
-			$search_q = "&q=$search&m=$match_on&smode=$search_mode";
+			$search_q = "&q=$search&smode=$search_mode";
 		} else {
 			$search_q = "";
 		}
@@ -123,6 +123,11 @@ class Feeds extends Handler_Protected {
 
 		if ($pluginhost->get_plugin("mail")) {
 			$reply .= "<option value=\"emailArticle(false)\">".__('Forward by email').
+				"</option>";
+		}
+
+		if ($pluginhost->get_plugin("mailto")) {
+			$reply .= "<option value=\"mailtoArticle(false)\">".__('Forward by email').
 				"</option>";
 		}
 
@@ -204,7 +209,6 @@ class Feeds extends Handler_Protected {
 		}
 
 		@$search_mode = db_escape_string($_REQUEST["search_mode"]);
-		$match_on = "both"; // deprecated, TODO: remove
 
 		if ($_REQUEST["debug"]) $timing_info = print_checkpoint("H0", $timing_info);
 
@@ -214,7 +218,7 @@ class Feeds extends Handler_Protected {
 		}
 //		error_log("search_mode: " . $search_mode);
 		$qfh_ret = queryFeedHeadlines($this->link, $feed, $limit, $view_mode, $cat_view,
-			$search, $search_mode, $match_on, $override_order, $offset, 0,
+			$search, $search_mode, $override_order, $offset, 0,
 			false, 0, $include_children);
 
 		if ($_REQUEST["debug"]) $timing_info = print_checkpoint("H1", $timing_info);
@@ -228,7 +232,7 @@ class Feeds extends Handler_Protected {
 
 		$reply['toolbar'] = $this->format_headline_subtoolbar($feed_site_url,
 			$feed_title,
-			$feed, $cat_view, $search, $match_on, $search_mode, $view_mode,
+			$feed, $cat_view, $search, $search_mode, $view_mode,
 			$last_error);
 
 		$headlines_count = db_num_rows($result);
@@ -257,6 +261,8 @@ class Feeds extends Handler_Protected {
 			$fresh_intl = get_pref($this->link, "FRESH_ARTICLE_MAX_AGE") * 60 * 60;
 
 			if ($_REQUEST["debug"]) $timing_info = print_checkpoint("PS", $timing_info);
+
+			$expand_cdm = get_pref($this->link, 'CDM_EXPANDED');
 
 			while ($line = db_fetch_assoc($result)) {
 				$class = ($lnum % 2) ? "even" : "odd";
@@ -314,24 +320,22 @@ class Feeds extends Handler_Protected {
 
 				if ($line["marked"] == "t" || $line["marked"] == "1") {
 					$marked_pic = "<img id=\"FMPIC-$id\"
-						src=\"".theme_image($this->link, 'images/mark_set.svg')."\"
+						src=\"images/mark_set.svg\"
 						class=\"markedPic\" alt=\"Unstar article\"
 						onclick='javascript:toggleMark($id)'>";
 				} else {
 					$marked_pic = "<img id=\"FMPIC-$id\"
-						src=\"".theme_image($this->link, 'images/mark_unset.svg')."\"
+						src=\"images/mark_unset.svg\"
 						class=\"markedPic\" alt=\"Star article\"
 						onclick='javascript:toggleMark($id)'>";
 				}
 
 				if ($line["published"] == "t" || $line["published"] == "1") {
-					$published_pic = "<img id=\"FPPIC-$id\" src=\"".theme_image($this->link,
-						'images/pub_set.svg')."\"
+					$published_pic = "<img id=\"FPPIC-$id\" src=\"images/pub_set.svg\"
 						class=\"markedPic\"
 						alt=\"Unpublish article\" onclick='javascript:togglePub($id)'>";
 				} else {
-					$published_pic = "<img id=\"FPPIC-$id\" src=\"".theme_image($this->link,
-						'images/pub_unset.svg')."\"
+					$published_pic = "<img id=\"FPPIC-$id\" src=\"images/pub_unset.svg\"
 						class=\"markedPic\"
 						alt=\"Publish article\" onclick='javascript:togglePub($id)'>";
 				}
@@ -356,8 +360,7 @@ class Feeds extends Handler_Protected {
 
 				$score = $line["score"];
 
-				$score_pic = theme_image($this->link,
-					"images/" . get_score_pic($score));
+				$score_pic = "images/" . get_score_pic($score);
 
 /*				$score_title = __("(Click to change)");
 				$score_pic = "<img class='hlScorePic' src=\"images/$score_pic\"
@@ -400,11 +403,11 @@ class Feeds extends Handler_Protected {
 
 							$cur_feed_title = htmlspecialchars($cur_feed_title);
 
-							$vf_catchup_link = "(<a onclick='catchupFeedInGroup($feed_id);' href='#'>".__('mark as read')."</a>)";
+							$vf_catchup_link = "(<a class='catchup' onclick='catchupFeedInGroup($feed_id);' href='#'>".__('Mark as read')."</a>)";
 
 							$reply['content'] .= "<div class='cdmFeedTitle'>".
 								"<div style=\"float : right\">$feed_icon_img</div>".
-								"<a href=\"#\" onclick=\"viewfeed($feed_id)\">".
+								"<a class='title' href=\"#\" onclick=\"viewfeed($feed_id)\">".
 								$line["feed_title"]."</a> $vf_catchup_link</div>";
 
 						}
@@ -476,7 +479,7 @@ class Feeds extends Handler_Protected {
 					unset($line["tag_cache"]);
 
 					$line["content"] = sanitize($this->link, $line["content_preview"],
-							false, false, $entry_site_url);
+							sql_bool_to_bool($line['hide_images']), false, $entry_site_url);
 
 					foreach ($pluginhost->get_hooks($pluginhost::HOOK_RENDER_ARTICLE_CDM) as $p) {
 						$line = $p->hook_render_article_cdm($line);
@@ -490,7 +493,7 @@ class Feeds extends Handler_Protected {
 
 							$cur_feed_title = htmlspecialchars($cur_feed_title);
 
-							$vf_catchup_link = "(<a onclick='javascript:catchupFeedInGroup($feed_id);' href='#'>".__('mark as read')."</a>)";
+							$vf_catchup_link = "(<a class='catchup' onclick='javascript:catchupFeedInGroup($feed_id);' href='#'>".__('mark as read')."</a>)";
 
 							$has_feed_icon = feed_has_icon($feed_id);
 
@@ -502,17 +505,17 @@ class Feeds extends Handler_Protected {
 
 							$reply['content'] .= "<div class='cdmFeedTitle'>".
 								"<div style=\"float : right\">$feed_icon_img</div>".
-								"<a href=\"#\" onclick=\"viewfeed($feed_id)\">".
+								"<a href=\"#\" class='title' onclick=\"viewfeed($feed_id)\">".
 								$line["feed_title"]."</a> $vf_catchup_link</div>";
 						}
 					}
 
-					$expand_cdm = get_pref($this->link, 'CDM_EXPANDED');
-
 					$mouseover_attrs = "onmouseover='postMouseIn($id)'
 						onmouseout='postMouseOut($id)'";
 
-					$reply['content'] .= "<div class=\"cdm $class\"
+					$expanded_class = $expand_cdm ? "expanded" : "";
+
+					$reply['content'] .= "<div class=\"cdm $expanded_class $class\"
 						id=\"RROW-$id\" $mouseover_attrs'>";
 
 					$reply['content'] .= "<div class=\"cdmHeader\">";
@@ -543,6 +546,10 @@ class Feeds extends Handler_Protected {
 
 					$reply['content'] .= $labels_str;
 
+					$reply['content'] .= "<span class='collapseBtn' style='display : none'>
+						<img src=\"images/collapse.png\" onclick=\"cdmCollapseArticle(event, $id)\"
+						title=\"".__("Collapse article")."\"/></span>";
+
 					if (!$expand_cdm)
 						$content_hidden = "style=\"display : none\"";
 					else
@@ -550,7 +557,6 @@ class Feeds extends Handler_Protected {
 
 					$reply['content'] .= "<span $excerpt_hidden
 						id=\"CEXC-$id\" class=\"cdmExcerpt\"> - $content_preview</span>";
-
 					$reply['content'] .= "</span>";
 
 					if (!get_pref($this->link, 'VFEED_GROUP_BY_FEED')) {
@@ -617,21 +623,21 @@ class Feeds extends Handler_Protected {
 					}
 
 					$reply['content'] .= "<span id=\"CWRAP-$id\">";
-					$reply['content'] .= $line["content"];
+
+//					if (!$expand_cdm) {
+						$reply['content'] .= "<span id=\"CENCW-$id\" style=\"display : none\">";
+						$reply['content'] .= htmlspecialchars($line["content"]);
+						$reply['content'] .= "</span.";
+
+//					} else {
+//						$reply['content'] .= $line["content"];
+//					}
+
 					$reply['content'] .= "</span>";
-
-/*					$tmp_result = db_query($this->link, "SELECT always_display_enclosures FROM
-						ttrss_feeds WHERE id = ".
-						(($line['feed_id'] == null) ? $line['orig_feed_id'] :
-							$line['feed_id'])." AND owner_uid = ".$_SESSION["uid"]);
-
-					$always_display_enclosures = sql_bool_to_bool(db_fetch_result($tmp_result,
-						0, "always_display_enclosures")); */
 
 					$always_display_enclosures = sql_bool_to_bool($line["always_display_enclosures"]);
 
-					$reply['content'] .= format_article_enclosures($this->link, $id, $always_display_enclosures,
-						$line["content"]);
+					$reply['content'] .= format_article_enclosures($this->link, $id, $always_display_enclosures, $line["content"], sql_bool_to_bool($line["hide_images"]));
 
 					$reply['content'] .= "</div>";
 
@@ -639,8 +645,7 @@ class Feeds extends Handler_Protected {
 
 					$tags_str = format_tags_string($line["tags"], $id);
 
-					$reply['content'] .= "<img src='".theme_image($this->link,
-							'images/tag.png')."' alt='Tags' title='Tags'>
+					$reply['content'] .= "<img src='images/tag.png' alt='Tags' title='Tags'>
 						<span id=\"ATSTR-$id\">$tags_str</span>
 						<a title=\"".__('Edit tags for this article')."\"
 						href=\"#\" onclick=\"editArticleTags($id, $feed_id, true)\">(+)</a>";
@@ -934,7 +939,6 @@ class Feeds extends Handler_Protected {
 
 		return $reply;
 	}
-
 
 }
 ?>
