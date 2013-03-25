@@ -8,7 +8,7 @@ class Article extends Handler_Protected {
 	}
 
 	function redirect() {
-		$id = db_escape_string($_REQUEST['id']);
+		$id = db_escape_string($this->link, $_REQUEST['id']);
 
 		$result = db_query($this->link, "SELECT link FROM ttrss_entries, ttrss_user_entries
 						WHERE id = '$id' AND id = ref_id AND owner_uid = '".$_SESSION['uid']."'
@@ -27,10 +27,10 @@ class Article extends Handler_Protected {
 	}
 
 	function view() {
-		$id = db_escape_string($_REQUEST["id"]);
-		$cids = explode(",", db_escape_string($_REQUEST["cids"]));
-		$mode = db_escape_string($_REQUEST["mode"]);
-		$omode = db_escape_string($_REQUEST["omode"]);
+		$id = db_escape_string($this->link, $_REQUEST["id"]);
+		$cids = explode(",", db_escape_string($this->link, $_REQUEST["cids"]));
+		$mode = db_escape_string($this->link, $_REQUEST["mode"]);
+		$omode = db_escape_string($this->link, $_REQUEST["omode"]);
 
 		// in prefetch mode we only output requested cids, main article
 		// just gets marked as read (it already exists in client cache)
@@ -122,14 +122,16 @@ class Article extends Handler_Protected {
 				db_query($link, "UPDATE ttrss_entries SET
 					content = '$content', content_hash = '$content_hash' WHERE id = '$ref_id'");
 
-				db_query($link, "UPDATE ttrss_user_entries SET published = true WHERE
+				db_query($link, "UPDATE ttrss_user_entries SET published = true,
+						last_published = NOW() WHERE
 						int_id = '$int_id' AND owner_uid = '$owner_uid'");
 			} else {
 
 				db_query($link, "INSERT INTO ttrss_user_entries
-					(ref_id, uuid, feed_id, orig_feed_id, owner_uid, published, tag_cache, label_cache, last_read, note, unread)
+					(ref_id, uuid, feed_id, orig_feed_id, owner_uid, published, tag_cache, label_cache,
+						last_read, note, unread, last_published)
 					VALUES
-					('$ref_id', '', NULL, NULL, $owner_uid, true, '', '', NOW(), '', false)");
+					('$ref_id', '', NULL, NULL, $owner_uid, true, '', '', NOW(), '', false, NOW())");
 			}
 
 			if (count($labels) != 0) {
@@ -152,9 +154,10 @@ class Article extends Handler_Protected {
 				$ref_id = db_fetch_result($result, 0, "id");
 
 				db_query($link, "INSERT INTO ttrss_user_entries
-					(ref_id, uuid, feed_id, orig_feed_id, owner_uid, published, tag_cache, label_cache, last_read, note, unread)
+					(ref_id, uuid, feed_id, orig_feed_id, owner_uid, published, tag_cache, label_cache,
+						last_read, note, unread, last_published)
 					VALUES
-					('$ref_id', '', NULL, NULL, $owner_uid, true, '', '', NOW(), '', false)");
+					('$ref_id', '', NULL, NULL, $owner_uid, true, '', '', NOW(), '', false, NOW())");
 
 				if (count($labels) != 0) {
 					foreach ($labels as $label) {

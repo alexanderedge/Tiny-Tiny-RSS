@@ -35,9 +35,6 @@
 		if ($mobile->isTablet() && $pluginhost->get_plugin("digest")) {
 			header('Location: backend.php?op=digest');
 			exit;
-		} else if ($mobile->isMobile()) {
-			header('Location: mobile/index.php');
-			exit;
 		}
 	}
 
@@ -80,7 +77,6 @@
 				"lib/dojo/dojo.js",
 				"lib/dijit/dijit.js",
 				"lib/dojo/tt-rss-layer.js",
-				"localized_js.php",
 				"errors.php?mode=js") as $jsfile) {
 
 		echo javascript_tag($jsfile);
@@ -102,6 +98,7 @@
 		print get_minified_js(array("tt-rss",
 			"functions", "feedlist", "viewfeed", "FeedTree"));
 
+		init_js_translations();
 	?>
 	</script>
 
@@ -126,17 +123,7 @@
 	</div>
 </div>
 
-<div id="header">
-	<img id="net-alert" style="display : none"
-		title="<?php echo __("Communication problem with server.") ?>"
-		src="images/alert.png"/>
-
-	<img id="newVersionIcon" style="display:none" onclick="newVersionDlg()"
-		width="13" height="13"
-		src="images/new_version.png"
-		title="<?php echo __('New version of Tiny Tiny RSS is available!') ?>"
-		alt="new_version_icon"/>
-</div>
+<div style="display : none" onclick="Element.hide(this)" id="small_article_preview"></div>
 
 <div id="notify" class="notify"><span id="notify_body">&nbsp;</span></div>
 <div id="cmdline" style="display : none"></div>
@@ -173,8 +160,8 @@
 			<option value="marked"><?php echo __('Starred') ?></option>
 			<option value="published"><?php echo __('Published') ?></option>
 			<option value="unread"><?php echo __('Unread') ?></option>
+			<option value="unread_first"><?php echo __('Unread First') ?></option>
 			<!-- <option value="noscores"><?php echo __('Ignore Scoring') ?></option> -->
-			<option value="updated"><?php echo __('Updated') ?></option>
 		</select>
 
 		<select title="<?php echo __('Sort articles') ?>"

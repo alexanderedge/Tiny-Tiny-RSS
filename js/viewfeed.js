@@ -13,6 +13,8 @@ var catchup_timeout_id = false;
 var cids_requested = [];
 var loaded_article_ids = [];
 
+var _post_preview_timeout = false;
+
 var has_storage = 'sessionStorage' in window && window['sessionStorage'] !== null;
 
 function headlines_callback2(transport, offset, background, infscroll_req) {
@@ -205,7 +207,7 @@ function headlines_callback2(transport, offset, background, infscroll_req) {
 
 		_infscroll_request_sent = 0;
 
-		headlines_scroll_handler($("headlines-frame"));
+		unpackVisibleHeadlines();
 
 		notify("");
 
@@ -315,7 +317,7 @@ function article_callback2(transport, id) {
 		var unread_in_buffer = $$("#headlines-frame > div[id*=RROW][class*=Unread]").length
 		request_counters(unread_in_buffer == 0);
 
-		headlines_scroll_handler($("headlines-frame"));
+		//headlines_scroll_handler($("headlines-frame"));
 
 /*		try {
 			if (!_infscroll_disable &&
@@ -397,7 +399,7 @@ function view(id) {
 					console.warn(e);
 				} */
 
-				headlines_scroll_handler($("headlines-frame"));
+				//headlines_scroll_handler($("headlines-frame"));
 
 				return;
 			}
@@ -979,9 +981,9 @@ function deleteSelection() {
 		var str;
 
 		if (getActiveFeedId() != 0) {
-			str = __("Delete %d selected articles in %s?");
+			str = ngettext("Delete %d selected article in %s?", "Delete %d selected articles in %s?" , rows.length);
 		} else {
-			str = __("Delete %d selected articles?");
+			str = ngettext("Delete %d selected article?", "Delete %d selected articles?", rows.length);
 		}
 
 		str = str.replace("%d", rows.length);
@@ -1023,10 +1025,10 @@ function archiveSelection() {
 		var op;
 
 		if (getActiveFeedId() != 0) {
-			str = __("Archive %d selected articles in %s?");
+			str = ngettext("Archive %d selected article in %s?", "Archive %d selected articles in %s?", rows.length);
 			op = "archive";
 		} else {
-			str = __("Move %d archived articles back?");
+			str = ngettext("Move %d archived article back?", "Move %d archived articles back?", rows.length);
 			op = "unarchive";
 		}
 
@@ -1070,7 +1072,7 @@ function catchupSelection() {
 
 		var fn = getFeedName(getActiveFeedId(), activeFeedIsCat());
 
-		var str = __("Mark %d selected articles in %s as read?");
+		var str = ngettext("Mark %d selected article in %s as read?", "Mark %d selected articles in %s as read?", rows.length);
 
 		str = str.replace("%d", rows.length);
 		str = str.replace("%s", fn);
@@ -1166,17 +1168,60 @@ function getActiveArticleId() {
 	return _active_article_id;
 }
 
-function postMouseIn(id) {
+function postMouseIn(e, id) {
 	post_under_pointer = id;
+
+	if (_post_preview_timeout) window.clearTimeout(_post_preview_timeout);
+
+	if (!isCdmMode() || !getInitParam("cdm_expanded")) {
+		_post_preview_timeout = window.setTimeout(function() {
+			displaySmallArticlePreview(e, id);
+		}, 1000);
+	}
+}
+
+function displaySmallArticlePreview(e, id) {
+	try {
+		var query = "?op=rpc&method=cdmarticlepreview&id=" + id;
+
+		new Ajax.Request("backend.php", {
+			parameters: query,
+			onComplete: function(transport) {
+				cexc = $("CEXC-" + id);
+				preview = $("small_article_preview");
+				row = $("RROW-" + id);
+
+				if (id != getActiveArticleId() && (!isCdmMode() || (cexc && Element.visible(cexc))) && row && preview) {
+					preview.innerHTML = transport.responseText;
+					new Effect.Appear(preview, {duration:0.2});
+
+					preview.setStyle({
+						left: (e.clientX + 20) + 'px',
+						top: (Element.cumulativeOffset(row)[1] + row.offsetHeight + 10) + 'px' });
+
+				}
+
+			} });
+
+
+	} catch (e) {
+		exception_error("displaySmallArticlePreview", e);
+	}
 }
 
 function postMouseOut(id) {
 	post_under_pointer = false;
+
+	if (_post_preview_timeout) window.clearTimeout(_post_preview_timeout);
+
+	if (Element.visible("small_article_preview"))
+		Element.hide("small_article_preview");
 }
 
-function headlines_scroll_handler(e) {
+function unpackVisibleHeadlines() {
 	try {
-		var hsp = $("headlines-spacer");
+
+		if (!isCdmMode()) return;
 
 		$$("#headlines-frame > div[id*=RROW]").each(
 			function(child) {
@@ -1194,6 +1239,17 @@ function headlines_scroll_handler(e) {
 			}
 		);
 
+
+	} catch (e) {
+		exception_error("unpackVisibleHeadlines", e);
+	}
+}
+
+function headlines_scroll_handler(e) {
+	try {
+		var hsp = $("headlines-spacer");
+
+		unpackVisibleHeadlines();
 
 		if (!_infscroll_disable) {
 			if ((hsp && e.scrollTop + e.offsetHeight >= hsp.offsetTop - hsp.offsetHeight) ||
@@ -1317,7 +1373,7 @@ function catchupRelativeToArticle(below, id) {
 		if (ids_to_mark.length == 0) {
 			alert(__("No articles found to mark"));
 		} else {
-			var msg = __("Mark %d article(s) as read?").replace("%d", ids_to_mark.length);
+			var msg = ngettext("Mark %d article as read?", "Mark %d articles as read?", ids_to_mark.length).replace("%d", ids_to_mark.length);
 
 			if (getInitParam("confirm_feed_catchup") != 1 || confirm(msg)) {
 
@@ -1374,6 +1430,8 @@ function cdmExpandArticle(id) {
 	try {
 		console.log("cdmExpandArticle " + id);
 
+		if (!$("RROW-" + id)) return false;
+
 		hideAuxDlg();
 
 		var elem = $("CICD-" + getActiveArticleId());
@@ -1392,6 +1450,7 @@ function cdmExpandArticle(id) {
 		  	Element.hide(elem);
 			Element.show("CEXC-" + getActiveArticleId());
 			Element.hide(collapse);
+			$("RROW-" + getActiveArticleId()).removeClassName("active");
 		}
 
 		setActiveArticleId(id);
@@ -1413,6 +1472,7 @@ function cdmExpandArticle(id) {
 			Element.show(elem);
 			Element.hide("CEXC-" + id);
 			Element.show(collapse);
+			$("RROW-" + id).addClassName("active");
 		}
 
 		var new_offset = $("RROW-" + id).offsetTop;
@@ -1824,6 +1884,12 @@ function initHeadlinesMenu() {
 				openArticleInNewWindow(this.getParent().callerRowId);
 			}}));
 
+		menu.addChild(new dijit.MenuItem({
+			label: __("Display article URL"),
+			onClick: function(event) {
+				displayArticleUrl(this.getParent().callerRowId);
+			}}));
+
 		menu.addChild(new dijit.MenuSeparator());
 
 		menu.addChild(new dijit.MenuItem({
@@ -2031,6 +2097,24 @@ function changeScore(id, pic) {
 					}
 				} });
 		}
+	} catch (e) {
+		exception_error("changeScore", e);
+	}
+}
+
+function displayArticleUrl(id) {
+	try {
+		var query = "op=rpc&method=getlinktitlebyid&id=" + param_escape(id);
+
+			new Ajax.Request("backend.php", {
+				parameters: query,
+				onComplete: function(transport) {
+					var reply = JSON.parse(transport.responseText);
+
+					if (reply && reply.link) {
+						prompt(__("Article URL:"), reply.link);
+					}
+				} });
 	} catch (e) {
 		exception_error("changeScore", e);
 	}

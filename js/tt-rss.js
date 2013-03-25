@@ -181,7 +181,7 @@ function updateTitle() {
 	var tmp = "Tiny Tiny RSS";
 
 	if (global_unread > 0) {
-		tmp = tmp + " (" + global_unread + ")";
+		tmp = "(" + global_unread + ") " + tmp;
 	}
 
 	if (window.fluid) {
@@ -447,7 +447,7 @@ function parse_runtime_info(data) {
 		}
 
 		if (k == "dep_ts" && parseInt(getInitParam("dep_ts")) > 0) {
-			if (parseInt(getInitParam("dep_ts")) < parseInt(v)) {
+			if (parseInt(getInitParam("dep_ts")) < parseInt(v) && getInitParam("reload_on_ts_change")) {
 				window.location.reload();
 			}
 		}

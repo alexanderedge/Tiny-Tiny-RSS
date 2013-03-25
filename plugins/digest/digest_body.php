@@ -18,14 +18,16 @@
 	<?php
 	foreach (array("lib/prototype.js",
 				"lib/scriptaculous/scriptaculous.js?load=effects,dragdrop,controls",
-				"localized_js.php",
 				"js/functions.js",
 				"plugins/digest/digest.js",
 				"errors.php?mode=js") as $jsfile) {
 
 		echo javascript_tag($jsfile);
-
 	} ?>
+
+	<script type="text/javascript">
+	<?php init_js_translations(); ?>
+	</script>
 
 	<script type="text/javascript" src="plugins/digest/digest.js"></script>
 
@@ -40,9 +42,7 @@
 		<div id="overlay_inner">
 		<noscript>
 			<p>
-			<?php print_error(__("Your browser doesn't support Javascript, which is required
-			for this application to function properly. Please check your
-			browser settings.")) ?></p>
+			<?php print_error(__("Your browser doesn't support Javascript, which is required for this application to function properly. Please check your browser settings.")) ?></p>
 		</noscript>
 
 		<img src="images/indicator_white.gif"/>
