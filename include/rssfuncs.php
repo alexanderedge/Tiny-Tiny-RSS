@@ -390,8 +390,7 @@
 
 				if ($debug_enabled) _debug("update_rss_feed: feed hub url: $feed_hub_url");
 
-				if ($feed_hub_url && function_exists('curl_init') &&
-					!ini_get("open_basedir")) {
+				if ($feed_hub_url && function_exists('curl_init')) {
 
 					require_once 'lib/pubsubhubbub/subscriber.php';
 

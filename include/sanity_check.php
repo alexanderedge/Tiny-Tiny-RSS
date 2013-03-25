@@ -28,12 +28,55 @@
 				array_push($errors, "Configuration file (config.php) has incorrect version. Update it with new options from config.php-dist and set CONFIG_VERSION to the correct value.");
 			}
 
-			if (!is_writable(CACHE_DIR . "/images")) {
-				array_push($errors, "Image cache is not writable (chmod -R 777 ".CACHE_DIR."/images)");
-			}
+			$dirs_used = array(
+				'LOCK_DIRECTORY directory defined in config.php' => LOCK_DIRECTORY,
+				'ICONS_DIR directory defined in config.php' => ICONS_DIR,
+				'HTMLPurifier cache directory' => CACHE_DIR . "/htmlpurifier",
+				'Image cache directory' => CACHE_DIR . "/images",
+				'Data export cache directory' => CACHE_DIR . "/export"
+			);
 
-			if (!is_writable(CACHE_DIR . "/export")) {
-				array_push($errors, "Data export cache is not writable (chmod -R 777 ".CACHE_DIR."/export)");
+			$paths_ok = true;
+			foreach ($dirs_used as $str => $path) {
+				$path = realpath($path);
+				if ($path !== false && is_dir($path)) {
+					$dirs_used["$str"] = rtrim($path, DIRECTORY_SEPARATOR);
+					if (!is_writable($path)) {
+						array_push($errors, "$str is not writable (chmod -R 777 \"$path\").");
+					}
+				} else {
+					array_push($errors, "$str doesn't exist (mkdir -p \"".$dirs_used["$str"]."\"; chmod -R 777 \"".$dirs_used["$str"]."\").");
+					$paths_ok = false;
+				}
+				
+ 			}
+
+			if (ini_get("open_basedir") && $paths_ok) {
+				$dirs_used = array_values($dirs_used);
+				array_push($dirs_used,
+					rtrim(dirname(realpath("config.php")), DIRECTORY_SEPARATOR), //existence not checked.
+					rtrim(realpath(CACHE_DIR), DIRECTORY_SEPARATOR) //existence not checked.
+				);
+				$dirs_used = array_unique($dirs_used);
+				foreach ($dirs_used as $path) {
+					foreach(preg_grep("@^\Q$path\E". DIRECTORY_SEPARATOR ."@", $dirs_used) as $key => $value) {
+						unset($dirs_used[$key]); //remove subdirectories of $path
+					}
+				}
+
+			$open_basedir = explode(PATH_SEPARATOR, ini_get("open_basedir"));
+				foreach ($open_basedir as $dir) {
+					$dir = realpath($dir);
+					if ($dir !== false && is_dir($dir)) {
+						$dir = rtrim($dir, DIRECTORY_SEPARATOR);
+						foreach(preg_grep("@^\Q$dir\E(?:". DIRECTORY_SEPARATOR ."|$)@", $dirs_used) as $key => $value) {
+							unset($dirs_used[$key]); //remove subdirectories of each path from open_basedir
+						}
+					}
+				}
+				if (count($dirs_used) > 0) {
+					array_push($errors, "PHP configuration option open_basedir needs to have the paths \"".implode(PATH_SEPARATOR, $dirs_used)."\" .");
+				}
 			}
 
 			if (!is_writable(CACHE_DIR . "/js")) {
@@ -81,23 +124,11 @@
 				}
 			}
 
-			if (!is_writable(ICONS_DIR)) {
-				array_push($errors, "ICONS_DIR defined in config.php is not writable (chmod -R 777 ".ICONS_DIR.").\n");
-			}
-
-			if (!is_writable(LOCK_DIRECTORY)) {
-				array_push($errors, "LOCK_DIRECTORY defined in config.php is not writable (chmod -R 777 ".LOCK_DIRECTORY.").\n");
-			}
-
-			if (ini_get("open_basedir")) {
-				array_push($errors, "PHP configuration option open_basedir is not supported. Please disable this in PHP settings file (php.ini).");
-			}
-
 			if (!function_exists("curl_init") && !ini_get("allow_url_fopen")) {
-				array_push($errors, "PHP configuration option allow_url_fopen is disabled, and CURL functions are not present. Either enable allow_url_fopen or install PHP extension for CURL.");
-			}
+ 				array_push($errors, "PHP configuration option allow_url_fopen is disabled, and CURL functions are not present. Either enable allow_url_fopen or install PHP extension for CURL.");
+ 			}
 
-			if (!function_exists("json_encode")) {
+ 			if (!function_exists("json_encode")) {
 				array_push($errors, "PHP support for JSON is required, but was not found.");
 			}
 

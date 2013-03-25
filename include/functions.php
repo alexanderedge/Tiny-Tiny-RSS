@@ -296,7 +296,7 @@
 
 		global $fetch_last_error;
 
-		if (function_exists('curl_init') && !ini_get("open_basedir")) {
+		if (function_exists('curl_init')) {
 
 			if (ini_get("safe_mode")) {
 				$ch = curl_init(geturl($url));
@@ -306,8 +306,6 @@
 
 			curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeout ? $timeout : 15);
 			curl_setopt($ch, CURLOPT_TIMEOUT, $timeout ? $timeout : 45);
-			curl_setopt($ch, CURLOPT_FOLLOWLOCATION, !ini_get("safe_mode"));
-			curl_setopt($ch, CURLOPT_MAXREDIRS, 20);
 			curl_setopt($ch, CURLOPT_BINARYTRANSFER, true);
 			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 			curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
@@ -316,6 +314,14 @@
 			curl_setopt($ch, CURLOPT_ENCODING , "gzip");
 			curl_setopt($ch, CURLOPT_REFERER, $url);
 
+			if (ini_get("open_basedir")) {
+				curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+				curl_setopt($ch, CURLOPT_HEADER, true);
+			} else {
+				curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+				curl_setopt($ch, CURLOPT_MAXREDIRS, 20);
+			}
+
 			if ($post_query) {
 				curl_setopt($ch, CURLOPT_POST, true);
 				curl_setopt($ch, CURLOPT_POSTFIELDS, $post_query);
@@ -323,6 +329,46 @@
 
 			if ($login && $pass)
 				curl_setopt($ch, CURLOPT_USERPWD, "$login:$pass");
+
+			//Only for http(s) protocol that CURLOPT_FOLLOWLOCATION has any meaning.
+			//we match file:// protocol too, but only to disable it when open_basedir is set.
+			if (ini_get("open_basedir") && preg_match('@^\s*(?:http|https|file)://@i', $url)) {
+				$proc_urls = array();
+				$work_url = $url;
+				for($max_redirects = 20; (
+					$max_redirects > 0 && //max redirect.
+					!in_array($work_url, $proc_urls) && //detect loop.
+					!preg_match('@^\s*file://@i', $work_url) //curl doesn't handle file protocol if open_basedir is set.
+					); $max_redirects--) {
+					    
+					array_push ($proc_urls, $work_url);
+					
+					curl_setopt($ch, CURLOPT_URL, $work_url);
+					$contents = curl_exec($ch);
+					
+					if ($contents === false)
+						break;
+					
+					$info = curl_getinfo($ch);
+					$header_size = $info['header_size'];
+					if(!isset($info['redirect_url'])) { //there are curl versions that doesn't set 'redirect_url'.
+						$info['redirect_url'] = preg_match("@[\r\n]+(?:Location|URI):\s*(.*?)\s*[\r\n]+@i", substr($contents, 0, $header_size), $matches) ? $matches[1] : "";
+					}
+					$contents = substr($contents, $header_size);
+					if (in_array($info['http_code'], array(300, 301, 302, 303, 307, 308)) && !empty($info['redirect_url'])) {
+						$work_url = $info['redirect_url'];
+						continue;
+					} elseif ($info['http_code'] == 200) {
+						if (!$type || strpos($info['content_type'], "$type") !== false) {
+							curl_close($ch);
+							return $contents;
+						}
+					}
+					break;
+				}
+				curl_close($ch);
+				return false;
+			}
 
 			$contents = @curl_exec($ch);
 
