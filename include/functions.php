@@ -1,6 +1,6 @@
 <?php
 	define('EXPECTED_CONFIG_VERSION', 26);
-	define('SCHEMA_VERSION', 106);
+	define('SCHEMA_VERSION', 107);
 
 	$fetch_last_error = false;
 	$pluginhost = false;
@@ -54,6 +54,7 @@
 					"ja_JP" => "日本語 (Japanese)",
 					"lv_LV" => "Latviešu",
 					"nb_NO" => "Norwegian bokmål",
+					"nl_NL" => "Dutch",
 					"pl_PL" => "Polski",
 					"ru_RU" => "Русский",
 					"pt_BR" => "Portuguese/Brazil",
@@ -75,10 +76,7 @@
 			$lang = _TRANSLATION_OVERRIDE_DEFAULT;
 		}
 
-		/* In login action of mobile version */
-		if ($_POST["language"] && defined('MOBILE_VERSION')) {
-			$lang = $_POST["language"];
-		} else if ($_SESSION["language"] && $_SESSION["language"] != "auto") {
+		if ($_SESSION["language"] && $_SESSION["language"] != "auto") {
 			$lang = $_SESSION["language"];
 		}
 
@@ -89,11 +87,7 @@
 				_setlocale(LC_ALL, $lang);
 			}
 
-			if (defined('MOBILE_VERSION')) {
-				_bindtextdomain("messages", "../locale");
-			} else {
-				_bindtextdomain("messages", "locale");
-			}
+			_bindtextdomain("messages", "locale");
 
 			_textdomain("messages");
 			_bind_textdomain_codeset("messages", "UTF-8");
@@ -412,7 +406,7 @@
 
 			$data = @file_get_contents($url);
 
-			$gzdecoded = gzdecode($data);
+			@$gzdecoded = gzdecode($data);
 			if ($gzdecoded) $data = $gzdecoded;
 
 			if (!$data && function_exists('error_get_last')) {
@@ -569,7 +563,7 @@
 
 	function initialize_user_prefs($link, $uid, $profile = false) {
 
-		$uid = db_escape_string($uid);
+		$uid = db_escape_string($link, $uid);
 
 		if (!$profile) {
 			$profile = "NULL";
@@ -799,7 +793,7 @@
 		}
 	}
 
-	function login_sequence($link, $login_form = 0) {
+	function login_sequence($link) {
 		$_SESSION["prefs_cache"] = false;
 
 		if (SINGLE_USER_MODE) {
@@ -815,12 +809,13 @@
 					 authenticate_user($link, null, null, true);
 				}
 
-				if (!$_SESSION["uid"]) render_login_form($link, $login_form);
+				if (!$_SESSION["uid"]) render_login_form($link);
 
 			} else {
 				/* bump login timestamp */
 				db_query($link, "UPDATE ttrss_users SET last_login = NOW() WHERE id = " .
 					$_SESSION["uid"]);
+				$_SESSION["last_login_update"] = time();
 			}
 
 			if ($_SESSION["uid"] && $_SESSION["language"] && SESSION_COOKIE_LIFETIME > 0) {
@@ -831,7 +826,21 @@
 			if ($_SESSION["uid"]) {
 				cache_prefs($link);
 				load_user_plugins($link, $_SESSION["uid"]);
+
+				/* cleanup ccache */
+
+				db_query($link, "DELETE FROM ttrss_counters_cache WHERE owner_uid = ".
+					$_SESSION["uid"] . " AND
+						(SELECT COUNT(id) FROM ttrss_feeds WHERE
+							ttrss_feeds.id = feed_id) = 0");
+
+				db_query($link, "DELETE FROM ttrss_cat_counters_cache WHERE owner_uid = ".
+					$_SESSION["uid"] . " AND
+						(SELECT COUNT(id) FROM ttrss_feed_categories WHERE
+							ttrss_feed_categories.id = feed_id) = 0");
+
 			}
+
 		}
 	}
 
@@ -964,7 +973,7 @@
 			}
 		}
 
-		if (db_escape_string("testTEST") != "testTEST") {
+		if (db_escape_string($link, "testTEST") != "testTEST") {
 			$error_code = 12;
 		}
 
@@ -1139,7 +1148,7 @@
 			} else { // tag
 				db_query($link, "BEGIN");
 
-				$tag_name = db_escape_string($feed);
+				$tag_name = db_escape_string($link, $feed);
 
 				$result = db_query($link, "SELECT post_int_id FROM ttrss_tags
 					WHERE tag_name = '$tag_name' AND owner_uid = $owner_uid");
@@ -1336,7 +1345,7 @@
 			return 0;
 		} else if ($feed != "0" && $n_feed == 0) {
 
-			$feed = db_escape_string($feed);
+			$feed = db_escape_string($link, $feed);
 
 			$result = db_query($link, "SELECT SUM((SELECT COUNT(int_id)
 				FROM ttrss_user_entries,ttrss_entries WHERE int_id = post_int_id
@@ -1572,7 +1581,7 @@
 	 *                 5 - Couldn't download the URL content.
 	 */
 	function subscribe_to_feed($link, $url, $cat_id = 0,
-			$auth_login = '', $auth_pass = '', $need_auth = false) {
+			$auth_login = '', $auth_pass = '') {
 
 		global $fetch_last_error;
 
@@ -1877,11 +1886,6 @@
 	function make_init_params($link) {
 		$params = array();
 
-		$params["sign_progress"] = "images/indicator_white.gif";
-		$params["sign_progress_tiny"] = "images/indicator_tiny.gif";
-		$params["sign_excl"] = "images/sign_excl.svg";
-		$params["sign_info"] = "images/sign_info.svg";
-
 		foreach (array("ON_CATCHUP_SHOW_NEXT_FEED", "HIDE_READ_FEEDS",
 			"ENABLE_FEED_CATS", "FEEDS_SORT_BY_UNREAD", "CONFIRM_FEED_CATCHUP",
 			"CDM_AUTO_CATCHUP", "FRESH_ARTICLE_MAX_AGE", "DEFAULT_ARTICLE_LIMIT",
@@ -2081,6 +2085,7 @@
 		$data['cdm_expanded'] = get_pref($link, 'CDM_EXPANDED');
 
 		$data['dep_ts'] = calculate_dep_timestamp();
+		$data['reload_on_ts_change'] = !defined('_NO_RELOAD_ON_TS_CHANGE');
 
 		if (file_exists(LOCK_DIRECTORY . "/update_daemon.lock")) {
 
@@ -2277,14 +2282,15 @@
 				if ($search) {
 					$view_query_part = " ";
 				} else if ($feed != -1) {
+
 					$unread = getFeedUnread($link, $feed, $cat_view);
 
 					if ($cat_view && $feed > 0 && $include_children)
 						$unread += getCategoryChildrenUnread($link, $feed);
 
-					if ($unread > 0) {
-						$view_query_part = " unread = true AND ";
-					}
+					if ($unread > 0)
+			        $view_query_part = " unread = true AND ";
+
 				}
 			}
 
@@ -2445,6 +2451,10 @@
 
 			if ($view_mode != "noscores") {
 				$order_by = "score DESC, $order_by";
+			}
+
+			if ($view_mode == "unread_first") {
+				$order_by = "unread DESC, $order_by";
 			}
 
 			if ($override_order) {
@@ -2708,7 +2718,7 @@
 		$entries = $doc->getElementsByTagName("*");
 
 		$allowed_elements = array('a', 'address', 'audio', 'article',
-			'b', 'big', 'blockquote', 'body', 'br', 'cite',
+			'b', 'big', 'blockquote', 'body', 'br', 'cite', 'center',
 			'code', 'dd', 'del', 'details', 'div', 'dl', 'font',
 			'dt', 'em', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
 			'header', 'html', 'i', 'img', 'ins', 'kbd',
@@ -2727,15 +2737,21 @@
 			}
 
 			if ($entry->hasAttributes()) {
-				foreach (iterator_to_array($entry->attributes) as $attr) {
+				$attrs_to_remove = array();
+
+				foreach ($entry->attributes as $attr) {
 
 					if (strpos($attr->nodeName, 'on') === 0) {
-						$entry->removeAttributeNode($attr);
+						array_push($attrs_to_remove, $attr);
 					}
 
 					if (in_array($attr->nodeName, $disallowed_attributes)) {
-						$entry->removeAttributeNode($attr);
+						array_push($attrs_to_remove, $attr);
 					}
+				}
+
+				foreach ($attrs_to_remove as $attr) {
+					$entry->removeAttributeNode($attr);
 				}
 			}
 		}
@@ -2802,7 +2818,7 @@
 
 	function get_article_tags($link, $id, $owner_uid = 0, $tag_cache = false) {
 
-		$a_id = db_escape_string($id);
+		$a_id = db_escape_string($link, $id);
 
 		if (!$owner_uid) $owner_uid = $_SESSION["uid"];
 
@@ -2837,7 +2853,7 @@
 
 			/* update the cache */
 
-			$tags_str = db_escape_string(join(",", $tags));
+			$tags_str = db_escape_string($link, join(",", $tags));
 
 			db_query($link, "UPDATE ttrss_user_entries
 				SET tag_cache = '$tags_str' WHERE ref_id = '$id'
@@ -2867,15 +2883,8 @@
 		return true;
 	}
 
-	function render_login_form($link, $form_id = 0) {
-		switch ($form_id) {
-		case 0:
-			require_once "login_form.php";
-			break;
-		case 1:
-			require_once "mobile/login_form.php";
-			break;
-		}
+	function render_login_form($link) {
+		require_once "login_form.php";
 		exit;
 	}
 
@@ -3051,13 +3060,8 @@
 						<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"/>
 						<title>Tiny Tiny RSS - ".$line["title"]."</title>
 						<link rel=\"stylesheet\" type=\"text/css\" href=\"tt-rss.css\">
-					</head><body>";
+					</head><body id=\"ttrssZoom\">";
 			}
-
-			$title_escaped = htmlspecialchars($line['title']);
-
-			$rv['content'] .= "<div id=\"PTITLE-FULL-$id\" style=\"display : none\">" .
-				strip_tags($line['title']) . "</div>";
 
 			$rv['content'] .= "<div class=\"postReply\" id=\"POST-$id\">";
 
@@ -3079,8 +3083,8 @@
 					title=\"".htmlspecialchars($line['title'])."\"
 					href=\"" .
 					htmlspecialchars($line["link"]) . "\">" .
-					$line["title"] .
-					"<span class='author'>$entry_author</span></a></div>";
+					$line["title"] . "</a>" .
+					"<span class='author'>$entry_author</span></div>";
 			} else {
 				$rv['content'] .= "<div class='postTitle'>" . $line["title"] . "$entry_author</div>";
 			}
@@ -3156,31 +3160,6 @@
 
 			$rv['content'] .= "<div class=\"postContent\">";
 
-			// N-grams
-
-			if (DB_TYPE == "pgsql" and defined('_NGRAM_TITLE_RELATED_THRESHOLD')) {
-
-				$ngram_result = db_query($link, "SELECT id,title FROM
-						ttrss_entries,ttrss_user_entries
-					WHERE ref_id = id AND updated >= NOW() - INTERVAL '7 day'
-						AND similarity(title, '$title_escaped') >= "._NGRAM_TITLE_RELATED_THRESHOLD."
-						AND title != '$title_escaped'
-						AND owner_uid = $owner_uid");
-
-				if (db_num_rows($ngram_result) > 0) {
-					$rv['content'] .= "<div dojoType=\"dijit.form.DropDownButton\">".
-						"<span>" . __('Related')."</span>";
-					$rv['content'] .= "<div dojoType=\"dijit.Menu\" style=\"display: none;\">";
-
-					while ($nline = db_fetch_assoc($ngram_result)) {
-						$rv['content'] .= "<div onclick=\"hlOpenInNewTab(null,".$nline['id'].")\"
-							dojoType=\"dijit.MenuItem\">".$nline['title']."</div>";
-
-					}
-					$rv['content'] .= "</div></div><br/";
-				}
-			}
-
 			$rv['content'] .= $line["content"];
 
 			$rv['content'] .= format_article_enclosures($link, $id,
@@ -3194,7 +3173,7 @@
 
 		if ($zoom_mode) {
 			$rv['content'] .= "
-				<div style=\"text-align : center\">
+				<div class='footer'>
 				<button onclick=\"return window.close()\">".
 					__("Close this window")."</button></div>";
 			$rv['content'] .= "</body></html>";
@@ -3271,7 +3250,7 @@
 			$filter_id = $line["id"];
 
 			$result2 = db_query($link, "SELECT
-				r.reg_exp, r.feed_id, r.cat_id, r.cat_filter, t.name AS type_name
+				r.reg_exp, r.inverse, r.feed_id, r.cat_id, r.cat_filter, t.name AS type_name
 				FROM ttrss_filters2_rules AS r,
 				ttrss_filter_types AS t
 				WHERE
@@ -3288,6 +3267,7 @@
 				$rule = array();
 				$rule["reg_exp"] = $rule_line["reg_exp"];
 				$rule["type"] = $rule_line["type_name"];
+				$rule["inverse"] = sql_bool_to_bool($rule_line["inverse"]);
 
 				array_push($rules, $rule);
 			}
@@ -3311,6 +3291,7 @@
 
 			$filter = array();
 			$filter["match_any_rule"] = sql_bool_to_bool($line["match_any_rule"]);
+			$filter["inverse"] = sql_bool_to_bool($line["inverse"]);
 			$filter["rules"] = $rules;
 			$filter["actions"] = $actions;
 
@@ -3576,7 +3557,7 @@
 		if (db_num_rows($result) == 1) {
 			return db_fetch_result($result, 0, "access_key");
 		} else {
-			$key = db_escape_string(sha1(uniqid(rand(), true)));
+			$key = db_escape_string($link, sha1(uniqid(rand(), true)));
 
 			$result = db_query($link, "INSERT INTO ttrss_access_keys
 				(access_key, feed_id, is_cat, owner_uid)
@@ -3930,9 +3911,9 @@
 
 			if ($regexp_valid) {
 
-				$rule['reg_exp'] = db_escape_string($rule['reg_exp']);
+				$rule['reg_exp'] = db_escape_string($link, $rule['reg_exp']);
 
-				switch ($rule["type"]) {
+					switch ($rule["type"]) {
 					case "title":
 						$qpart = "LOWER(ttrss_entries.title) $reg_qpart LOWER('".
 							$rule['reg_exp'] . "')";
@@ -3960,8 +3941,10 @@
 						break;
 				}
 
+				if (isset($rule['inverse'])) $qpart = "NOT ($qpart)";
+
 				if (isset($rule["feed_id"]) && $rule["feed_id"] > 0) {
-					$qpart .= " AND feed_id = " . db_escape_string($rule["feed_id"]);
+					$qpart .= " AND feed_id = " . db_escape_string($link, $rule["feed_id"]);
 				}
 
 				if (isset($rule["cat_id"])) {
@@ -3986,10 +3969,14 @@
 		}
 
 		if (count($query) > 0) {
-			return "(" . join($filter["match_any_rule"] ? "OR" : "AND", $query) . ")";
+			$fullquery = "(" . join($filter["match_any_rule"] ? "OR" : "AND", $query) . ")";
 		} else {
-			return "(false)";
+			$fullquery = "(false)";
 		}
+
+		if ($filter['inverse']) $fullquery = "(NOT $fullquery)";
+
+		return $fullquery;
 	}
 
 	if (!function_exists('gzdecode')) {
@@ -4161,6 +4148,44 @@
 		}
 
 		return $max_ts;
+	}
+
+	function T_js_decl($s1, $s2) {
+		if ($s1 && $s2) {
+			$s1 = preg_replace("/\n/", "", $s1);
+			$s2 = preg_replace("/\n/", "", $s2);
+
+			$s1 = preg_replace("/\"/", "\\\"", $s1);
+			$s2 = preg_replace("/\"/", "\\\"", $s2);
+
+			return "T_messages[\"$s1\"] = \"$s2\";\n";
+		}
+	}
+
+	function init_js_translations() {
+
+	print 'var T_messages = new Object();
+
+		function __(msg) {
+			if (T_messages[msg]) {
+				return T_messages[msg];
+			} else {
+				return msg;
+			}
+		}
+
+		function ngettext(msg1, msg2, n) {
+			return (parseInt(n) > 1) ? msg2 : msg1;
+		}';
+
+		$l10n = _get_reader();
+
+		for ($i = 0; $i < $l10n->total; $i++) {
+			$orig = $l10n->get_original_string($i);
+			$translation = __($orig);
+
+			print T_js_decl($orig, $translation);
+		}
 	}
 
 ?>
